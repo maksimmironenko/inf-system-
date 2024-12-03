@@ -1,0 +1,156 @@
+import json  # Для работы с JSON
+import yaml  # Для работы с YAML
+import tkinter as tk  # Для графического интерфейса
+from tkinter import messagebox  # Для вывода сообщений пользователю
+# 1. Observable: Реализация паттерна "Наблюдатель"
+class Observable:
+    def init(self):
+        self._observers = []  # Список наблюдателей, подписанных на изменения
+    def add_observer(self, observer):
+        """Добавить наблюдателя."""
+        self._observers.append(observer)  # Добавляем функцию или объект в список
+    def notify_observers(self):
+        """Уведомить всех наблюдателей."""
+        for observer in self._observers:  # Обходим всех наблюдателей
+            observer()  # Вызываем метод обновления у каждого
+# 2. BaseRepository: Базовый класс для работы с данными
+class BaseRepository(Observable):
+    def init(self, file_path):
+        super().init()  # Наследуем функционал Observable
+        self.file_path = file_path  # Путь к файлу
+        self.data = []  # Список для хранения данных
+        self._load_data()  # Загружаем данные при инициализации
+    def _load_data(self):
+        """Метод чтения данных. Реализуется в подклассах."""
+        raise NotImplementedError  # Требуется реализация в наследниках
+    def _save_data(self):
+        """Метод записи данных. Реализуется в подклассах."""
+        raise NotImplementedError
+    def get_all(self):
+        """Получить все данные."""
+        return self.data  # Возвращаем весь список данных
+    def add(self, obj):
+        """Добавить новый объект в список."""
+        max_id = max((item['id'] for item in self.data), default=0)  # Находим максимальный ID
+        obj['id'] = max_id + 1  # Присваиваем новый ID
+        self.data.append(obj)  # Добавляем объект в список
+        self._save_data()  # Сохраняем изменения
+        self.notify_observers()  # Уведомляем наблюдателей
+    def delete_by_id(self, obj_id):
+        """Удалить объект по ID."""
+        self.data = [item for item in self.data if item['id'] != obj_id]  # Удаляем объект
+        self._save_data()  # Сохраняем изменения
+        self.notify_observers()  # Уведомляем наблюдателей
+# 3. JSONRepository: Репозиторий для работы с JSON-файлами
+class JSONRepository(BaseRepository):
+    def _load_data(self):
+        """Чтение данных из JSON."""
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as file:
+                self.data = json.load(file)  # Загружаем данные из файла
+        except FileNotFoundError:
+            self.data = []  # Если файл не найден, инициализируем пустой список
+    def _save_data(self):
+        """Сохранение данных в JSON."""
+        with open(self.file_path, 'w', encoding='utf-8') as file:
+            json.dump(self.data, file, indent=4, ensure_ascii=False)  # Сохраняем данные
+# 4. Controller: Управляет репозиторием и представлением
+class Controller:
+    def init(self, repository, view):
+        self.repository = repository  # Репозиторий для работы с данными
+        self.view = view  # Главное окно (View)
+        self.repository.add_observer(self.update_view)  # Подписываем View на изменения репозитория
+    def update_view(self):
+        """Обновить данные в главном окне."""
+        self.view.display_data(self.repository.get_all())  # Передаем все данные в главное окно
+    def add_item(self, item_data):
+        """Добавить элемент в репозиторий."""
+        self.repository.add(item_data)
+    def delete_item(self, item_id):
+        """Удалить элемент из репозитория."""
+        self.repository.delete_by_id(item_id)
+# 5. AddClientController: Контроллер для нового окна добавления клиента
+class AddClientController:
+    def init(self, repository):
+        self.repository = repository  # Репозиторий данных
+    def add_client(self, client_data):
+        """Добавить клиента в репозиторий."""
+        if not self._validate_client_data(client_data):  # Проверяем данные на корректность
+            return False
+        self.repository.add(client_data)  # Добавляем данные в репозиторий
+        return True
+def _validate_client_data(self, client_data):
+        """Проверка корректности данных."""
+if not client_data.get("first_name") or not client_data.get("last_name"):
+            messagebox.showerror("Validation Error", "First Name and Last Name are required.")  # Проверяем обязательные поля
+            return False
+        if "@" not in client_data.get("email", ""):
+            messagebox.showerror("Validation Error", "Email must be valid.")  # Проверяем email
+            return False
+        return True
+# 6. AddClientView: Окно для добавления клиента
+class AddClientView:
+    def init(self, controller):
+        self.controller = controller  # Контроллер для окна
+        self.root = tk.Toplevel()  # Создаем новое окно
+        self.root.title("Add Client")  # Устанавливаем заголовок окна
+        # Поля ввода данных
+        tk.Label(self.root, text="First Name").grid(row=0, column=0)
+        self.first_name_entry = tk.Entry(self.root)
+        self.first_name_entry.grid(row=0, column=1)
+        tk.Label(self.root, text="Last Name").grid(row=1, column=0)
+        self.last_name_entry = tk.Entry(self.root)
+        self.last_name_entry.grid(row=1, column=1)
+        tk.Label(self.root, text="Email").grid(row=2, column=0)
+        self.email_entry = tk.Entry(self.root)
+        self.email_entry.grid(row=2, column=1)
+        # Кнопки
+        tk.Button(self.root, text="Save", command=self.save_client).grid(row=3, column=0)
+        tk.Button(self.root, text="Cancel", command=self.root.destroy).grid(row=3, column=1)
+    def save_client(self):
+        """Сохранение нового клиента."""
+        client_data = {
+            "first_name": self.first_name_entry.get(),
+            "last_name": self.last_name_entry.get(),
+            "email": self.email_entry.get(),
+        }
+        if self.controller.add_client(client_data):  # Если добавление прошло успешно
+            self.root.destroy()  # Закрываем окно
+# 7. ClientView: Главное окно приложения
+class ClientView:
+    def init(self, controller):
+        self.controller = controller  # Контроллер для главного окна
+        self.root = tk.Tk()  # Создаем главное окно
+        self.root.title("Client Manager")  # Заголовок окна
+        # Список клиентов
+        self.data_list = tk.Listbox(self.root)
+        self.data_list.pack(fill=tk.BOTH, expand=True)
+        # Кнопки
+        tk.Button(self.root, text="Add Client", command=self.open_add_client_window).pack(side=tk.LEFT)
+        tk.Button(self.root, text="Delete Client", command=self.delete_client).pack(side=tk.LEFT)
+    def display_data(self, data):
+        """Отобразить данные в списке."""
+        self.data_list.delete(0, tk.END)  # Очищаем список
+        for item in data:
+            self.data_list.insert(tk.END, f"{item['id']}: {item['first_name']} {item['last_name']}")  # Добавляем элементы
+    def open_add_client_window(self):
+        """Открыть окно для добавления клиента."""
+        add_controller = AddClientController(self.controller.repository)  # Создаем контроллер для нового окна
+        AddClientView(add_controller)  # Открываем новое окно
+    def delete_client(self):
+        """Удалить выбранного клиента."""
+        selected = self.data_list.curselection()  # Получаем выбранный элемент
+        if not selected:
+            messagebox.showwarning("Warning", "Please select a client to delete.")  # Если ничего не выбрано
+            return
+        client_id = int(self.data_list.get(selected[0]).split(":")[0])  # Извлекаем ID
+        self.controller.delete_item(client_id)  # Удаляем клиента через контроллер
+    def run(self):
+        """Запустить главное окно."""
+        self.root.mainloop()
+# 8. Запуск программы
+if name == "main":
+    repo = JSONRepository("clients.json")  # Создаем репозиторий для работы с JSON
+    view = ClientView(Controller(repo, None))  # Создаем главное окно и связываем его с контроллером
+    view.controller.view = view  # Устанавливаем ссылку на главное окно в контроллере
+    view.run()  # Запускаем приложение
