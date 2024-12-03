@@ -1,0 +1,151 @@
+import json  # Для работы с JSON-файлами
+import yaml  # Для работы с YAML-файлами
+import tkinter as tk  # Для создания графического интерфейса
+from tkinter import messagebox  # Для отображения сообщений пользователю
+# 1. Observable: Реализация паттерна "Наблюдатель"
+class Observable:
+    def __init__(self):
+        self._observers = []  # Список наблюдателей, подписанных на изменения
+    def add_observer(self, observer):
+        """Добавить наблюдателя."""
+        self._observers.append(observer)
+    def notify_observers(self):
+        """Уведомить всех наблюдателей."""
+        for observer in self._observers:
+            observer()  # Вызываем каждого наблюдателя
+# 2. BaseRepository: Базовый класс репозитория
+class BaseRepository(Observable):
+    def __init__(self, file_path):
+        super().__init__()  # Наследуем поведение Observable
+        self.file_path = file_path  # Путь к файлу данных
+        self.data = []  # Список данных
+        self._load_data()  # Загружаем данные при инициализации
+    def _load_data(self):
+        """Чтение данных. Реализуется в подклассах."""
+        raise NotImplementedError  # Обязательная реализация в наследниках
+    def _save_data(self):
+        """Запись данных. Реализуется в подклассах."""
+        raise NotImplementedError
+    def get_all(self):
+        """Получить все элементы."""
+        return self.data  # Возвращаем все данные
+    def get_by_id(self, obj_id):
+        """Получить элемент по ID."""
+        return next((item for item in self.data if item['id'] == obj_id), None)  # Ищем элемент с указанным ID
+    def get_k_n_short_list(self, k, n):
+        """Постраничный вывод данных."""
+        start_index = (k - 1) * n  # Вычисляем начальный индекс
+        end_index = start_index + n  # Вычисляем конечный индекс
+        return self.data[start_index:end_index]  # Возвращаем данные указанного диапазона
+    def sort_by_field(self, field):
+        """Сортировка элементов по полю."""
+        self.data.sort(key=lambda x: x.get(field))  # Сортируем данные по указанному полю
+        self._save_data()  # Сохраняем отсортированные данные
+    def add(self, obj):
+        """Добавить новый элемент."""
+        max_id = max((item['id'] for item in self.data), default=0)  # Находим максимальный ID
+        obj['id'] = max_id + 1  # Присваиваем новый ID
+        self.data.append(obj)  # Добавляем объект в список
+        self._save_data()  # Сохраняем данные
+        self.notify_observers()  # Уведомляем наблюдателей об изменении данных
+    def update_by_id(self, obj_id, updated_obj):
+        """Обновить элемент по ID."""
+        for index, item in enumerate(self.data):  # Проходим по всем элементам
+            if item['id'] == obj_id:  # Если ID совпадает
+                updated_obj['id'] = obj_id  # Сохраняем ID в обновленном объекте
+                self.data[index] = updated_obj  # Заменяем объект
+                self._save_data()  # Сохраняем изменения
+                self.notify_observers()  # Уведомляем наблюдателей
+                return True  # Успешное обновление
+        return False  # Если элемент не найден
+    def delete_by_id(self, obj_id):
+        """Удалить элемент по ID."""
+        self.data = [item for item in self.data if item['id'] != obj_id]  # Удаляем элемент с указанным ID
+        self._save_data()  # Сохраняем изменения
+        self.notify_observers()  # Уведомляем наблюдателей
+    def get_count(self):
+        """Получить количество элементов."""
+        return len(self.data)  # Возвращаем количество элементов
+# 3. JSONRepository: Работа с JSON-файлом
+class JSONRepository(BaseRepository):
+    def _load_data(self):
+        """Чтение данных из JSON."""
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as file:
+                self.data = json.load(file)  # Загружаем данные из файла
+        except FileNotFoundError:
+            self.data = []  # Если файл отсутствует, инициализируем пустой список
+    def _save_data(self):
+        """Запись данных в JSON."""
+        with open(self.file_path, 'w', encoding='utf-8') as file:
+json.dump(self.data, file, indent=4, ensure_ascii=False)  # Сохраняем данные в JSON
+# 4. YAMLRepository: Работа с YAML-файлом
+class YAMLRepository(BaseRepository):
+    def _load_data(self):
+        """Чтение данных из YAML."""
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as file:
+                self.data = yaml.safe_load(file) or []  # Загружаем данные или инициализируем пустой список
+        except FileNotFoundError:
+            self.data = []
+    def _save_data(self):
+        """Запись данных в YAML."""
+        with open(self.file_path, 'w', encoding='utf-8') as file:
+            yaml.dump(self.data, file, allow_unicode=True, default_flow_style=False)
+# 5. Controller: Управление данными
+class Controller:
+    def __init__(self, repository, view):
+        self.repository = repository  # Ссылка на репозиторий
+        self.view = view  # Ссылка на окно
+        self.repository.add_observer(self.update_view)  # Подписываем окно на изменения в репозитории
+    def update_view(self):
+        """Обновить окно на основе данных из репозитория."""
+        self.view.display_data(self.repository.get_all())
+    def add_item(self, item_data):
+        """Добавить элемент."""
+        self.repository.add(item_data)  # Вызываем метод добавления репозитория
+    def delete_item(self, item_id):
+        """Удалить элемент."""
+        self.repository.delete_by_id(item_id)  # Вызываем метод удаления репозитория
+    def update_item(self, item_id, updated_data):
+        """Обновить элемент."""
+        self.repository.update_by_id(item_id, updated_data)  # Вызываем метод обновления репозитория
+# 6. ClientView: Интерфейс пользователя
+class ClientView:
+    def __init__(self, controller):
+        self.controller = controller  # Ссылка на контроллер
+        self.root = tk.Tk()  # Создаем окно
+        self.root.title("Client Manager")  # Устанавливаем заголовок окна
+        # Создаем виджеты
+        self.data_list = tk.Listbox(self.root)  # Список данных
+        self.data_list.pack(fill=tk.BOTH, expand=True)
+        self.add_button = tk.Button(self.root, text="Add Client", command=self.add_client)  # Кнопка добавления
+        self.add_button.pack(side=tk.LEFT)
+        self.delete_button = tk.Button(self.root, text="Delete Client", command=self.delete_client)  # Кнопка удаления
+        self.delete_button.pack(side=tk.LEFT)
+    def display_data(self, data):
+        """Отобразить данные."""
+        self.data_list.delete(0, tk.END)  # Очищаем список
+        for item in data:  # Заполняем список
+            self.data_list.insert(tk.END, f"{item['id']}: {item['first_name']} {item['last_name']}")
+    def add_client(self):
+        """Добавить клиента."""
+        new_client = {"first_name": "Новый", "last_name": "Клиент"}  # Имитация ввода данных
+        self.controller.add_item(new_client)  # Передаем данные в контроллер
+    def delete_client(self):
+        """Удалить клиента."""
+        selected = self.data_list.curselection()  # Получаем выбранный элемент
+        if not selected:  # Если элемент не выбран
+            messagebox.showwarning("Warning", "Please select a client to delete.")  # Показать предупреждение
+            return
+        client_id = int(self.data_list.get(selected[0]).split(":")[0])  # Извлекаем ID
+        self.controller.delete_item(client_id)  # Удаляем элемент через контроллер
+    def run(self):
+        """Запустить окно."""
+        self.root.mainloop()  # Запуск цикла обработки событий
+# 7. Инициализация программы
+if name == "__main__":
+    repo = JSONRepository("clients.json")  # Создаем репозиторий
+    view = ClientView(Controller(repo, None))  # Создаем окно и связываем его с контроллером
+    view.controller.view = view  # Устанавливаем ссылку на окно в контроллере
+    view.run()  # Запускаем приложение
