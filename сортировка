@@ -1,0 +1,232 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import sqlite3
+
+
+class DBConnectionManager:
+    def __init__(self, db_name="clients.db"):
+        self.connection = sqlite3.connect(db_name)
+        self.cursor = self.connection.cursor()
+        self._initialize_table()
+
+    def _initialize_table(self):
+        """Создание таблицы clients, если её нет"""
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS clients (
+                ClientId INTEGER PRIMARY KEY AUTOINCREMENT,
+                FirstName TEXT NOT NULL,
+                LastName TEXT NOT NULL,
+                MiddleName TEXT,
+                Address TEXT,
+                Phone TEXT NOT NULL
+            )
+        """)
+        self.connection.commit()
+
+    def execute_query(self, query, params=None):
+        """Выполняет SQL-запрос с параметрами"""
+        if params is None:
+            params = ()
+        self.cursor.execute(query, params)
+        return self.cursor
+
+    def commit(self):
+        """Подтверждает транзакцию"""
+        self.connection.commit()
+
+    def __del__(self):
+        """Закрывает соединение с БД"""
+        self.cursor.close()
+        self.connection.close()
+
+
+class RepositoryWithObserver:
+    def __init__(self, db_name="clients.db"):
+        self.db_manager = DBConnectionManager(db_name)
+        self.observers = []
+
+    def add_observer(self, observer):
+        """Добавить наблюдателя"""
+        self.observers.append(observer)
+
+    def notify_observers(self):
+        """Уведомить наблюдателей об изменениях"""
+        data = self.get_all_records()
+        for observer in self.observers:
+            observer.update(data)
+
+    def add_record(self, record):
+        """Добавить запись в базу данных"""
+        query = """
+        INSERT INTO clients (FirstName, LastName, MiddleName, Address, Phone) 
+        VALUES (?, ?, ?, ?, ?)"""
+        self.db_manager.execute_query(query, 
+            (record['FirstName'], record['LastName'], record['MiddleName'], record['Address'], record['Phone']))
+        self.db_manager.commit()
+        self.notify_observers()
+
+    def delete_record(self, record_id):
+        """Удалить запись по ID"""
+        query = "DELETE FROM clients WHERE ClientId = ?"
+        self.db_manager.execute_query(query, (record_id,))
+        self.db_manager.commit()
+        self.notify_observers()
+
+    def sort_by_field(self, field):
+        """Сортировать записи по указанному полю"""
+        query = f"SELECT ClientId, FirstName, LastName, Phone FROM clients ORDER BY {field}"
+        cursor = self.db_manager.execute_query(query)
+        return cursor.fetchall()
+
+    def get_all_records(self):
+        """Получить все записи"""
+        query = "SELECT ClientId, FirstName, LastName, Phone FROM clients"
+        cursor = self.db_manager.execute_query(query)
+        return cursor.fetchall()
+
+    def get_by_id(self, client_id):
+        """Получить запись по ID"""
+        query = "SELECT * FROM clients WHERE ClientId = ?"
+        cursor = self.db_manager.execute_query(query, (client_id,))
+        return cursor.fetchone()
+
+
+class MainView:
+    """Основное окно"""
+    def __init__(self, controller):
+        self.controller = controller
+        self.root = tk.Tk()
+        self.root.title("Управление клиентами")
+
+        # Таблица
+        self.table = ttk.Treeview(self.root, columns=("ID", "FirstName", "LastName", "Phone"), show="headings")
+        self.table.heading("ID", text="ID", command=lambda: self.sort_table("ClientId"))
+        self.table.heading("FirstName", text="Имя", command=lambda: self.sort_table("FirstName"))
+        self.table.heading("LastName", text="Фамилия", command=lambda: self.sort_table("LastName"))
+        self.table.heading("Phone", text="Телефон", command=lambda: self.sort_table("Phone"))
+        self.table.pack(fill=tk.BOTH, expand=True)
+
+        # Кнопки управления
+        btn_frame = tk.Frame(self.root)
+        btn_frame.pack(fill=tk.X)
+
+        tk.Button(btn_frame, text="Добавить", command=self.open_add_record_window).pack(side=tk.LEFT, padx=5, pady=5)
+        tk.Button(btn_frame, text="Удалить", command=self.delete_record).pack(side=tk.LEFT, padx=5, pady=5)
+        tk.Button(btn_frame, text="Детали", command=self.open_details_window).pack(side=tk.LEFT, padx=5, pady=5)
+
+    def sort_table(self, field):
+        """Сортировка таблицы"""
+        self.controller.sort_records(field)
+
+    def open_add_record_window(self):
+        """Открыть окно добавления"""
+        self.controller.open_add_record_window()
+
+    def delete_record(self):
+        """Удалить запись"""
+        selected_item = self.table.selection()
+        if not selected_item:
+            messagebox.showwarning("Ошибка", "Выберите запись для удаления.")
+            return
+        client_id = self.table.item(selected_item, "values")[0]
+        self.controller.delete_record(client_id)
+
+    def open_details_window(self):
+        """Открыть окно с деталями"""
+        selected_item = self.table.selection()
+        if not selected_item:
+            messagebox.showwarning("Ошибка", "Выберите запись для просмотра.")
+            return
+        client_id = self.table.item(selected_item, "values")[0]
+        self.controller.open_details_window(client_id)
+
+    def update_table(self, data):
+        """Обновить таблицу"""
+        for item in self.table.get_children():
+            self.table.delete(item)
+        for row in data:
+            self.table.insert("", tk.END, values=row)
+
+
+class MainController:
+    """Контроллер"""
+    def __init__(self, model, view):
+        self.model = model
+        self.view = view
+        self.model.add_observer(self)
+
+    def update(self, data):
+        """Обновить представление"""
+        self.view.update_table(data)
+
+    def open_add_record_window(self):
+        """Открыть окно добавления"""
+        AddRecordWindow(self.model)
+
+    def delete_record(self, client_id):
+        """Удалить запись"""
+        self.model.delete_record(client_id)
+
+    def open_details_window(self, client_id):
+        """Показать детали"""
+        details = self.model.get_by_id(client_id)
+        if details:
+            messagebox.showinfo(
+                "Детали", 
+                f"ID: {details[0]}\nИмя: {details[1]}\nФамилия: {details[2]}\nОтчество: {details[3]}\n"
+                f"Адрес: {details[4]}\nТелефон: {details[5]}"
+            )
+
+    def sort_records(self, field):
+        """Сортировать записи"""
+        sorted_data = self.model.sort_by_field(field)
+        self.view.update_table(sorted_data)
+
+
+class AddRecordWindow:
+    """Окно добавления"""
+    def __init__(self, model):
+        self.model = model
+        self.window = tk.Toplevel()
+        self.window.title("Добавить клиента")
+
+        tk.Label(self.window, text="Имя").grid(row=0, column=0)
+        tk.Label(self.window, text="Фамилия").grid(row=1, column=0)
+        tk.Label(self.window, text="Отчество").grid(row=2, column=0)
+        tk.Label(self.window, text="Адрес").grid(row=3, column=0)
+        tk.Label(self.window, text="Телефон").grid(row=4, column=0)
+
+        self.first_name_entry = tk.Entry(self.window)
+        self.last_name_entry = tk.Entry(self.window)
+        self.middle_name_entry = tk.Entry(self.window)
+        self.address_entry = tk.Entry(self.window)
+        self.phone_entry = tk.Entry(self.window)
+
+        self.first_name_entry.grid(row=0, column=1)
+        self.last_name_entry.grid(row=1, column=1)
+        self.middle_name_entry.grid(row=2, column=1)
+        self.address_entry.grid(row=3, column=1)
+        self.phone_entry.grid(row=4, column=1)
+
+        tk.Button(self.window, text="Добавить", command=self.add_record).grid(row=5, column=0, columnspan=2)
+
+    def add_record(self):
+        """Добавить запись"""
+        record = {
+            "FirstName": self.first_name_entry.get(),
+            "LastName": self.last_name_entry.get(),
+            "MiddleName": self.middle_name_entry.get(),
+            "Address": self.address_entry.get(),
+            "Phone": self.phone_entry.get()
+        }
+        self.model.add_record(record)
+        self.window.destroy()
+
+
+if __name__ == "__main__":
+    model = RepositoryWithObserver()
+    view = MainView(None)
+    controller = MainController(model, view)
+    view.controller = controller
+
+    view.root.mainloop()
